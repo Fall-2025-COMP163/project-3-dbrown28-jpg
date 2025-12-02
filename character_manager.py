@@ -14,24 +14,13 @@ and validating character data structures.
 
 import os
 import json
-
 from custom_exceptions import (
     InvalidCharacterClassError,
     CharacterNotFoundError,
     CharacterDeadError,
     InsufficientLevelError,
     SaveFileCorruptedError,
-    InvalidSaveDataError
-)
-
-from inventory_system import (
-    add_item_to_inventory,
-    remove_item_from_inventory,
-    use_item,
-    equip_weapon,
-    equip_armor,
-    purchase_item,
-    sell_item,
+    InvalidSaveDataError,
     InventoryFullError,
     ItemNotFoundError,
     InsufficientResourcesError,
@@ -45,19 +34,17 @@ CHARACTER_SAVE_DIR = "data/save_games"
 os.makedirs(CHARACTER_SAVE_DIR, exist_ok=True)
 
 VALID_CLASSES = ["Warrior", "Mage", "Rogue", "Cleric"]
-LEVEL_UP_XP = 100  # XP required per level (example)
-MAX_INVENTORY_SIZE = 20  # Max items a character can hold
+MAX_INVENTORY_SIZE = 20
+LEVEL_UP_XP = 100  # Example XP threshold for leveling up
 
 # ====================================================================
 # CHARACTER CREATION AND STORAGE
 # ====================================================================
 
 def create_character(name, char_class):
-    """Create a new character with default stats"""
     if char_class not in VALID_CLASSES:
         raise InvalidCharacterClassError(f"Invalid class '{char_class}'")
-    
-    char = {
+    return {
         "name": name,
         "class": char_class,
         "level": 1,
@@ -73,27 +60,23 @@ def create_character(name, char_class):
         "strength": 10,
         "defense": 5
     }
-    return char
 
 def save_character(char):
-    """Save character to JSON file"""
-    filepath = os.path.join(CHARACTER_SAVE_DIR, f"{char['name']}.json")
+    path = os.path.join(CHARACTER_SAVE_DIR, f"{char['name']}.json")
     try:
-        with open(filepath, "w") as f:
+        with open(path, "w") as f:
             json.dump(char, f)
         return True
     except Exception:
         raise SaveFileCorruptedError(f"Failed to save character '{char['name']}'")
 
 def load_character(name):
-    """Load a character from JSON file"""
-    filepath = os.path.join(CHARACTER_SAVE_DIR, f"{name}.json")
-    if not os.path.exists(filepath):
+    path = os.path.join(CHARACTER_SAVE_DIR, f"{name}.json")
+    if not os.path.exists(path):
         raise CharacterNotFoundError(f"Character '{name}' not found")
     try:
-        with open(filepath, "r") as f:
+        with open(path, "r") as f:
             char = json.load(f)
-        # Basic validation
         if "name" not in char or "class" not in char:
             raise InvalidSaveDataError(f"Save data for '{name}' is invalid")
         return char
@@ -103,10 +86,9 @@ def load_character(name):
         raise InvalidSaveDataError(str(e))
 
 def delete_character(name):
-    """Delete a character's save file"""
-    filepath = os.path.join(CHARACTER_SAVE_DIR, f"{name}.json")
-    if os.path.exists(filepath):
-        os.remove(filepath)
+    path = os.path.join(CHARACTER_SAVE_DIR, f"{name}.json")
+    if os.path.exists(path):
+        os.remove(path)
         return True
     return False
 
@@ -115,30 +97,96 @@ def delete_character(name):
 # ====================================================================
 
 def gain_experience(char, xp):
-    """Add experience and level up if threshold reached"""
     if char["health"] <= 0:
         raise CharacterDeadError(f"{char['name']} is dead and cannot gain experience")
-    
     char["experience"] += xp
     while char["experience"] >= LEVEL_UP_XP * char["level"]:
         char["experience"] -= LEVEL_UP_XP * char["level"]
         char["level"] += 1
-        char["max_health"] += 10  # Increase max health on level up
-        char["health"] = char["max_health"]  # Restore health on level up
+        char["max_health"] += 10
+        char["health"] = char["max_health"]
 
 def heal_character(char, amount):
-    """Heal character, cannot exceed max_health"""
     if char["health"] <= 0:
         raise CharacterDeadError(f"{char['name']} is dead and cannot be healed")
     char["health"] = min(char["health"] + amount, char["max_health"])
+
+# ====================================================================
+# INVENTORY OPERATIONS
+# ====================================================================
+
+def add_item_to_inventory(char, item_name):
+    if 'inventory' not in char:
+        char['inventory'] = []
+    if len(char['inventory']) >= MAX_INVENTORY_SIZE:
+        raise InventoryFullError("Inventory is full")
+    char['inventory'].append(item_name)
+
+def remove_item_from_inventory(char, item_name):
+    if 'inventory' not in char or item_name not in char['inventory']:
+        raise ItemNotFoundError(f"Item '{item_name}' not found")
+    char['inventory'].remove(item_name)
+
+# ====================================================================
+# ITEM USAGE
+# ====================================================================
+
+def use_item(char, item_name, item_data):
+    if 'inventory' not in char or item_name not in char['inventory']:
+        raise ItemNotFoundError(f"Item '{item_name}' not in inventory")
+    if item_data['type'] != 'consumable':
+        raise InvalidItemTypeError(f"Cannot use item type '{item_data['type']}'")
+    effect = item_data.get('effect', '')
+    if effect.startswith('health:'):
+        heal_amount = int(effect.split(':')[1])
+        heal_character(char, heal_amount)
+    char['inventory'].remove(item_name)
+
+# ====================================================================
+# EQUIPMENT
+# ====================================================================
+
+def equip_weapon(char, item_name, item_data):
+    if 'inventory' not in char or item_name not in char['inventory']:
+        raise ItemNotFoundError(f"Weapon '{item_name}' not in inventory")
+    if item_data['type'] != 'weapon':
+        raise InvalidItemTypeError(f"Cannot equip item type '{item_data['type']}'")
+    char['equipped_weapon'] = item_name
+    effect = item_data.get('effect', '')
+    if effect.startswith('strength:'):
+        char['strength'] = char.get('strength', 10) + int(effect.split(':')[1])
+
+def equip_armor(char, item_name, item_data):
+    if 'inventory' not in char or item_name not in char['inventory']:
+        raise ItemNotFoundError(f"Armor '{item_name}' not in inventory")
+    if item_data['type'] != 'armor':
+        raise InvalidItemTypeError(f"Cannot equip item type '{item_data['type']}'")
+    char['equipped_armor'] = item_name
+    effect = item_data.get('effect', '')
+    if effect.startswith('defense:'):
+        char['defense'] = char.get('defense', 5) + int(effect.split(':')[1])
+
+# ====================================================================
+# SHOP OPERATIONS
+# ====================================================================
+
+def purchase_item(char, item_name, item_data):
+    if char.get('gold', 0) < item_data.get('cost', 0):
+        raise InsufficientResourcesError("Not enough gold to purchase item")
+    add_item_to_inventory(char, item_name)
+    char['gold'] -= item_data.get('cost', 0)
+
+def sell_item(char, item_name, item_data):
+    if 'inventory' not in char or item_name not in char['inventory']:
+        raise ItemNotFoundError(f"Cannot sell '{item_name}', not in inventory")
+    remove_item_from_inventory(char, item_name)
+    char['gold'] += item_data.get('cost', 0) // 2
 
 # ====================================================================
 # GOLD MANAGEMENT
 # ====================================================================
 
 def add_gold(char, amount):
-    """Add or subtract gold; cannot go below 0"""
-    if char["gold"] + amount < 0:
-        raise ValueError(f"{char['name']} does not have enough gold")
+    if char.get("gold", 0) + amount < 0:
+        raise InsufficientResourcesError(f"{char['name']} does not have enough gold")
     char["gold"] += amount
-    return char["gold"]
